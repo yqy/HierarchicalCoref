@@ -93,8 +93,6 @@ def performance(doc,network_model,ana_network=None):
             else:
                 new_score = score_softmax(torch.transpose(scores_reindex[s:e-1],0,1)).data.cpu().numpy()[0]
                 #ac_list = new_score.tolist()
-                #print new_score
-                #print
                 ac_list = (new_score*ana_score[:-1]).tolist()
                 
                 #new_action = ac_list.index(max(ac_list[-400:]))

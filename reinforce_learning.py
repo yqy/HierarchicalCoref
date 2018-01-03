@@ -72,8 +72,19 @@ def main():
     dev_docs_iter = DataReader.DataGnerater("dev"+reduced)
     test_docs_iter = DataReader.DataGnerater("test"+reduced)
 
+    print "Performance after pretraining..."
+    print "DEV"
+    metric = performance.performance(dev_docs_iter,network_model,ana_network) 
+    print "Average:",metric["average"]
+    print "TEST"
+    metric = performance.performance(test_docs_iter,network_model,ana_network) 
+    print "Average:",metric["average"]
+    print "***"
+    print
+    sys.stdout.flush()
+
     l2_lambda = 1e-6
-    lr = 0.000002
+    lr = 0.00001
     #lr = 0.0000009
     dropout_rate = 0.5
     shuffle = True
@@ -92,7 +103,6 @@ def main():
         print "Pretrain Epoch:",echo
 
         train_docs = utils.load_pickle(args.DOCUMENT + 'train_docs.pkl')
-        dev_docs = utils.load_pickle(args.DOCUMENT + 'dev_docs.pkl')
 
         docs_by_id = {doc.did: doc for doc in train_docs}
        
@@ -157,14 +167,13 @@ def main():
                     costs[ant_ind] = doc.link(ids[ant_ind, 0], ana, hypothetical=True, beta=1)
                 doc.link(old_ant, ana) 
 
-                costs -= costs.max()
-                #costs *= doc_weight
-                costs *= -doc_weight
+                #costs -= costs.max()
+                #costs *= -doc_weight
 
-        #print >> sys.stderr,"Get standard reward ..."
-        #metric = performance.performance(train_docs_iter,network_model,ana_network)
-        #r,p,f = metric["b3"]
-        #baseline_f = f
+        print >> sys.stderr,"Get standard reward ..."
+        metric = performance.performance(train_docs_iter,network_model,ana_network)
+        r,p,f = metric["b3"]
+        baseline_f = f
 
         cost = 0.0
         optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps = 1e-5)
@@ -203,13 +212,13 @@ def main():
             ana_optimizer.zero_grad()
             ana_loss = None
             for s,e in zip(rl["starts"],rl["ends"]):
-                reward_list = rl["costs"][s:e]
-                #reward_list = rl["costs"][s:e] - baseline_f
+                #reward_list = rl["costs"][s:e]
+                reward_list = rl["costs"][s:e] - baseline_f
                 #reward_list = reward_list - np.mean(reward_list)
                 costs = autograd.Variable(torch.from_numpy(reward_list).type(torch.cuda.FloatTensor))
                 ana_scores_softmax = score_softmax(torch.transpose(ana_scores_reindex[s:e],0,1))
-                #this_cost = torch.sum(ana_scores_softmax*costs*-1)
-                this_cost = torch.sum(ana_scores_softmax*costs)
+                this_cost = torch.sum(ana_scores_softmax*costs*-1)
+                #this_cost = torch.sum(ana_scores_softmax*costs)
                 
                 if ana_loss is None:
                     ana_loss = this_cost
@@ -247,14 +256,14 @@ def main():
             index = 0
             for s,e in zip(rl["starts"],rl["ends"]):
                 if anaphoricity_target[index] == 1:
-                    reward_list = rl["costs"][s:e-1]
-                    #reward_list = rl["costs"][s:e-1] - baseline_f
+                    #reward_list = rl["costs"][s:e-1]
+                    reward_list = rl["costs"][s:e-1] - baseline_f
                     #reward_list = reward_list - np.mean(reward_list)
                     costs = autograd.Variable(torch.from_numpy(reward_list).type(torch.cuda.FloatTensor))
 
                     pair_scores_softmax = score_softmax(torch.transpose(scores_reindex[s:e-1],0,1))
-                    #this_cost = torch.sum(pair_scores_softmax*costs*-1)
-                    this_cost = torch.sum(pair_scores_softmax*costs)
+                    this_cost = torch.sum(pair_scores_softmax*costs*-1)
+                    #this_cost = torch.sum(pair_scores_softmax*costs)
                 
                     if pair_loss is None:
                         pair_loss = this_cost

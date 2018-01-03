@@ -21,9 +21,7 @@ from conf import *
 
 import DataReader
 import evaluation
-#import network
 import net as network
-import Evaluate
 import performance
 
 import cPickle
@@ -51,7 +49,6 @@ def main():
     print >> sys.stderr,"prepare data for dev and test ..."
     dev_docs = DataReader.DataGnerater("dev"+reduced)
     test_docs = DataReader.DataGnerater("test"+reduced)
-
 
     l2_lambda = 1e-6
     lr = 0.00009

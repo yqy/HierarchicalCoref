@@ -21,9 +21,7 @@ from conf import *
 
 import DataReader
 import evaluation
-#import network
 import net as network
-import Evaluate
 import performance
 
 import cPickle
@@ -69,7 +67,6 @@ def main():
 
 
     l2_lambda = 1e-6
-    #lr = 0.0002
     lr = 0.0001
     dropout_rate = 0.5
     shuffle = True
@@ -92,7 +89,6 @@ def main():
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
 
-        #optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5, weight_decay=l2_lambda)
         optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5)
 
         pair_cost_this_turn = 0.0
@@ -151,9 +147,6 @@ def main():
         print >> sys.stderr, "PreTrain",echo,"Pair total cost:",pair_cost_this_turn
         print >> sys.stderr, "PreTRAINING Use %.3f seconds"%(end_time-start_time)
         print >> sys.stderr, "Learning Rate",lr
-
-        #print >> sys.stderr,"save model ..."
-        #torch.save(network_model, model_save_dir+"network_model_pretrain.%d.top"%echo)
 
         gold = []
         predict = []
