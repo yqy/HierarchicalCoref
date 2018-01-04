@@ -118,6 +118,7 @@ def performance(doc,network_model,ana_network=None):
     r,p,f = metrics["ceaf"]
     print "CEAF: recall: %f precision: %f  f1: %f"%(r,p,f)
     metrics["ana"] = ana_result
+    print "AVE",metrics["average"]
 
     return metrics
 

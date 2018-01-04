@@ -89,6 +89,9 @@ def main():
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
 
+        if echo == 70:
+            lr = lr/2.0
+
         optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5)
 
         pair_cost_this_turn = 0.0
