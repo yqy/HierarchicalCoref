@@ -22,7 +22,6 @@ from conf import *
 import DataReader
 import evaluation
 import net as network
-import net_act
 import utils
 import performance
 
