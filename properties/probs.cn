@@ -1,6 +1,6 @@
 # this is the properties of neural network
 
-pair_feature_dimention = 75
+pair_feature_dimention = 68
 mention_feature_dimention = 23
 span_dimention = 5*64
 embedding_dimention = 64
