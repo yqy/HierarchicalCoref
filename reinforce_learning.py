@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 import torchvision.transforms as T
 import torch.optim as optim
+from torch.optim import lr_scheduler
 
 from sklearn.metrics import accuracy_score, average_precision_score, precision_score,recall_score
 
@@ -100,11 +101,17 @@ def main():
     score_softmax = nn.Softmax()
     optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps = 1e-6)
     ana_optimizer = optim.RMSprop(ana_network.parameters(), lr=lr, eps = 1e-6)
+
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.5)
+    ana_scheduler = lr_scheduler.StepLR(ana_optimizer, step_size=15, gamma=0.5)
    
     for echo in range(30):
 
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
+
+        scheduler.step()
+        ana_scheduler.step()
 
         train_docs = utils.load_pickle(args.DOCUMENT + 'train_docs.pkl')
 
