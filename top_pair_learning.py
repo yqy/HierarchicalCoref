@@ -14,6 +14,8 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 import torchvision.transforms as T
 import torch.optim as optim
+from torch.optim import lr_scheduler
+
 
 from sklearn.metrics import accuracy_score, average_precision_score, precision_score,recall_score
 
@@ -43,7 +45,7 @@ def main():
     DIR = args.DIR
     embedding_file = args.embedding_dir
 
-    best_network_file = "./model/network_model_pretrain.best"
+    best_network_file = "./model/network_model_pretrain.best.pair"
     print >> sys.stderr,"Read model from",best_network_file
     best_network_model = torch.load(best_network_file)
         
@@ -83,16 +85,16 @@ def main():
         'recall': 0.0,
         'f1': 0.0
         }
+    
+    optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.5)
   
     for echo in range(100):
 
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
-
-        if echo == 70:
-            lr = lr/2.0
-
-        optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5)
+    
+        scheduler.step()
 
         pair_cost_this_turn = 0.0
         ana_cost_this_turn = 0.0
@@ -137,10 +139,7 @@ def main():
             output,output_reindex = network_model.forward_top_pair(nnargs["word_embedding_dimention"],mention_index,mention_span,candi_index,candi_spans,pair_feature,anaphors,antecedents,reindex,start_index,end_index,dropout_rate)
             loss = F.binary_cross_entropy(output,top_gold,size_average=False)/train_docs.scale_factor_top
 
-            ana_output,_ = network_model.forward_anaphoricity(nnargs["word_embedding_dimention"], anaphoricity_index, anaphoricity_span, anaphoricity_feature, dropout_rate)
-            ana_loss = F.binary_cross_entropy(ana_output,ana_lable,size_average=False)/train_docs.anaphoricity_scale_factor_top
-
-            loss_all = loss + ana_loss    
+            loss_all = loss   
             
             loss_all.backward()
             pair_cost_this_turn += loss.data[0]
@@ -185,9 +184,6 @@ def main():
 
             predict += output.data.cpu().numpy().tolist()
 
-
-            ana_output,_ = network_model.forward_anaphoricity(nnargs["word_embedding_dimention"], anaphoricity_index, anaphoricity_span, anaphoricity_feature, 0.0)
-            ana_predict += ana_output.data.cpu().numpy()[0].tolist()
         
         gold = numpy.array(gold,dtype=numpy.int32)
         predict = numpy.array(predict)
@@ -213,31 +209,7 @@ def main():
         if best_results["f1"] >= all_best_results["f1"]:
             all_best_results = best_results
             print >> sys.stderr, "New High Result, Save Model"
-            torch.save(network_model, model_save_dir+"network_model_pretrain.best.top")
-
-        ana_gold = numpy.array(ana_gold,dtype=numpy.int32)
-        ana_predict = numpy.array(ana_predict)
-        best_results = {
-            'thresh': 0.0,
-            'accuracy': 0.0,
-            'precision': 0.0,
-            'recall': 0.0,
-            'f1': 0.0
-        }
-        for thresh in thresh_list:
-            evaluation_results = get_metrics(ana_gold, ana_predict, thresh)
-            if evaluation_results["f1"] >= best_results["f1"]:
-                best_results = evaluation_results
-        print "Anaphoricity accuracy: %f and Fscore: %f with thresh: %f"\
-                %(best_results["accuracy"],best_results["f1"],best_results["thresh"])
-        sys.stdout.flush() 
-
-        if (echo+1)%10 == 0:
-            best_network_model = torch.load(model_save_dir+"network_model_pretrain.best.top") 
-            print "DEV:"
-            performance.performance(dev_docs,best_network_model)
-            print "TEST:"
-            performance.performance(test_docs,best_network_model)
+            torch.save(network_model, model_save_dir+"network_model_pretrain.best.top.pair")
 
 def get_metrics(gold, predict, thresh):
     pred = np.clip(np.floor(predict / thresh), 0, 1)

@@ -1,0 +1,9 @@
+# this is the properties of neural network
+
+pair_feature_dimention = 75
+mention_feature_dimention = 23
+span_dimention = 5*64
+embedding_dimention = 64
+embedding_size = 24683
+word_embedding_dimention = 8*64
+

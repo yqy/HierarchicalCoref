@@ -31,15 +31,30 @@ sys.setrecursionlimit(1000000)
 print >> sys.stderr, "PID", os.getpid()
 
 torch.cuda.set_device(args.gpu)
+
+def net_copy(net,copy_from_net):
+    mcp = list(net.parameters())
+    mp = list(copy_from_net.parameters())
+    n = len(mcp)
+    for i in range(0, n): 
+        mcp[i].data[:] = mp[i].data[:]
  
 def main():
 
     DIR = args.DIR
     embedding_file = args.embedding_dir
 
+    best_network_file = "./model/network_model_pretrain.best.ana"
+    print >> sys.stderr,"Read model from",best_network_file
+    best_network_model = torch.load(best_network_file)
+        
     embedding_matrix = numpy.load(embedding_file)
+
     "Building torch model"
     network_model = network.Network(nnargs["pair_feature_dimention"],nnargs["mention_feature_dimention"],nnargs["word_embedding_dimention"],nnargs["span_dimention"],1000,nnargs["embedding_size"],nnargs["embedding_dimention"],embedding_matrix).cuda()
+    print >> sys.stderr,"save model ..."
+
+    net_copy(network_model,best_network_model)
 
     reduced=""
     if args.reduced == 1:
@@ -51,8 +66,8 @@ def main():
     dev_docs = DataReader.DataGnerater("dev"+reduced)
     test_docs = DataReader.DataGnerater("test"+reduced)
 
+
     l2_lambda = 1e-6
-    #lr = 0.00009
     lr = 0.0001
     dropout_rate = 0.5
     shuffle = True
@@ -69,14 +84,15 @@ def main():
         'recall': 0.0,
         'f1': 0.0
         }
-    
-    optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps = 1e-5)
+
+    optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps=1e-5)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.5)
   
     for echo in range(100):
 
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
+
         scheduler.step()
 
         pair_cost_this_turn = 0.0
@@ -85,13 +101,15 @@ def main():
         pair_nums = 0
         ana_nums = 0
 
+        pos_num = 0
+        neg_num = 0
         inside_time = 0.0
         
 
-        for data in train_docs.train_generater(shuffle=shuffle):
+        for data in train_docs.train_generater(shuffle=shuffle,top=True):
             
             mention_word_index, mention_span, candi_word_index,candi_span,feature_pair,pair_antecedents,pair_anaphors,\
-            target,positive,negative,anaphoricity_word_indexs, anaphoricity_spans, anaphoricity_features, anaphoricity_target = data
+            target,positive,negative,anaphoricity_word_indexs, anaphoricity_spans, anaphoricity_features, anaphoricity_target,top_x = data
             mention_index = autograd.Variable(torch.from_numpy(mention_word_index).type(torch.cuda.LongTensor))
             mention_span = autograd.Variable(torch.from_numpy(mention_span).type(torch.cuda.FloatTensor))
             candi_index = autograd.Variable(torch.from_numpy(candi_word_index).type(torch.cuda.LongTensor))
@@ -104,36 +122,35 @@ def main():
             anaphoricity_span = autograd.Variable(torch.from_numpy(anaphoricity_spans).type(torch.cuda.FloatTensor))
             anaphoricity_feature = autograd.Variable(torch.from_numpy(anaphoricity_features).type(torch.cuda.FloatTensor))
 
-            gold = target.tolist()
+            reindex = autograd.Variable(torch.from_numpy(top_x["score_index"]).type(torch.cuda.LongTensor))
+
+
+            start_index = autograd.Variable(torch.from_numpy(top_x["starts"]).type(torch.cuda.LongTensor))
+            end_index = autograd.Variable(torch.from_numpy(top_x["ends"]).type(torch.cuda.LongTensor))
+
+            top_gold = autograd.Variable(torch.from_numpy(top_x["top_gold"]).type(torch.cuda.FloatTensor))
+
             anaphoricity_gold = anaphoricity_target.tolist()
-
-            pair_nums += len(gold)
-            ana_nums += len(anaphoricity_gold)
-
-            lable = autograd.Variable(torch.cuda.FloatTensor([gold]))
             ana_lable = autograd.Variable(torch.cuda.FloatTensor([anaphoricity_gold]))
-
-            output,_ = network_model.forward_all_pair(nnargs["word_embedding_dimention"],mention_index,mention_span,candi_index,candi_spans,pair_feature,anaphors,antecedents,dropout_rate)
-            ana_output,_ = network_model.forward_anaphoricity(nnargs["word_embedding_dimention"], anaphoricity_index, anaphoricity_span, anaphoricity_feature, dropout_rate)
 
             optimizer.zero_grad()
 
-            #loss = get_pair_loss(output,positive,negative,train_docs.scale_factor)
-            loss = F.binary_cross_entropy(output,lable,size_average=False)/train_docs.scale_factor
-            #ana_loss = F.binary_cross_entropy(ana_output,ana_lable,size_average=False)/train_docs.anaphoricity_scale_factor
+            output,output_reindex = network_model.forward_top_pair(nnargs["word_embedding_dimention"],mention_index,mention_span,candi_index,candi_spans,pair_feature,anaphors,antecedents,reindex,start_index,end_index,dropout_rate)
+            loss = F.binary_cross_entropy(output,top_gold,size_average=False)/train_docs.scale_factor_top
 
-            pair_cost_this_turn += loss.data[0]*train_docs.scale_factor
+            ana_output,_ = network_model.forward_anaphoricity(nnargs["word_embedding_dimention"], anaphoricity_index, anaphoricity_span, anaphoricity_feature, dropout_rate)
+            ana_loss = F.binary_cross_entropy(ana_output,ana_lable,size_average=False)/train_docs.anaphoricity_scale_factor_top
 
-            loss_all = loss
+            loss_all = loss + ana_loss    
+            
             loss_all.backward()
+            pair_cost_this_turn += loss.data[0]
             optimizer.step()
 
         end_time = timeit.default_timer()
+        print >> sys.stderr, "PreTrain",echo,"Pair total cost:",pair_cost_this_turn
         print >> sys.stderr, "PreTRAINING Use %.3f seconds"%(end_time-start_time)
         print >> sys.stderr, "Learning Rate",lr
-
-        #print >> sys.stderr,"save model ..."
-        #torch.save(network_model, model_save_dir+"network_model_pretrain.%d"%echo)
 
         gold = []
         predict = []
@@ -141,10 +158,10 @@ def main():
         ana_gold = []
         ana_predict = []
 
-        for data in dev_docs.train_generater(shuffle=False):
+        for data in dev_docs.train_generater(shuffle=False,top = True):
             
             mention_word_index, mention_span, candi_word_index,candi_span,feature_pair,pair_antecedents,pair_anaphors,\
-            target,positive,negative, anaphoricity_word_indexs, anaphoricity_spans, anaphoricity_features, anaphoricity_target = data
+            target,positive,negative, anaphoricity_word_indexs, anaphoricity_spans, anaphoricity_features, anaphoricity_target, top_x = data
          
             mention_index = autograd.Variable(torch.from_numpy(mention_word_index).type(torch.cuda.LongTensor))
             mention_span = autograd.Variable(torch.from_numpy(mention_span).type(torch.cuda.FloatTensor))
@@ -158,11 +175,17 @@ def main():
             anaphoricity_span = autograd.Variable(torch.from_numpy(anaphoricity_spans).type(torch.cuda.FloatTensor))
             anaphoricity_feature = autograd.Variable(torch.from_numpy(anaphoricity_features).type(torch.cuda.FloatTensor))
 
-            gold += target.tolist()
-            ana_gold += anaphoricity_target.tolist()
+            reindex = autograd.Variable(torch.from_numpy(top_x["score_index"]).type(torch.cuda.LongTensor))
+            start_index = autograd.Variable(torch.from_numpy(top_x["starts"]).type(torch.cuda.LongTensor))
+            end_index = autograd.Variable(torch.from_numpy(top_x["ends"]).type(torch.cuda.LongTensor))
 
-            output,_ = network_model.forward_all_pair(nnargs["word_embedding_dimention"],mention_index,mention_span,candi_index,candi_spans,pair_feature,anaphors,antecedents,0.0)
-            predict += output.data.cpu().numpy()[0].tolist()
+            gold += top_x["top_gold"].tolist()
+            ana_gold += anaphoricity_target.tolist()
+        
+            output,output_reindex = network_model.forward_top_pair(nnargs["word_embedding_dimention"],mention_index,mention_span,candi_index,candi_spans,pair_feature,anaphors,antecedents,reindex,start_index,end_index,0.0)
+
+            predict += output.data.cpu().numpy().tolist()
+
 
             ana_output,_ = network_model.forward_anaphoricity(nnargs["word_embedding_dimention"], anaphoricity_index, anaphoricity_span, anaphoricity_feature, 0.0)
             ana_predict += ana_output.data.cpu().numpy()[0].tolist()
@@ -178,7 +201,7 @@ def main():
             'f1': 0.0
         }
 
-        thresh_list = [0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6]
+        thresh_list = [0.3,0.35,0.4,0.45,0.5,0.55,0.6]
         for thresh in thresh_list:
             evaluation_results = get_metrics(gold, predict, thresh)
             if evaluation_results["f1"] >= best_results["f1"]:
@@ -191,14 +214,31 @@ def main():
         if best_results["f1"] >= all_best_results["f1"]:
             all_best_results = best_results
             print >> sys.stderr, "New High Result, Save Model"
-            torch.save(network_model, model_save_dir+"network_model_pretrain.best.pair")
+            torch.save(network_model, model_save_dir+"network_model_pretrain.best.top.ana")
 
+        ana_gold = numpy.array(ana_gold,dtype=numpy.int32)
+        ana_predict = numpy.array(ana_predict)
+        best_results = {
+            'thresh': 0.0,
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0
+        }
+        for thresh in thresh_list:
+            evaluation_results = get_metrics(ana_gold, ana_predict, thresh)
+            if evaluation_results["f1"] >= best_results["f1"]:
+                best_results = evaluation_results
+        print "Anaphoricity accuracy: %f and Fscore: %f with thresh: %f"\
+                %(best_results["accuracy"],best_results["f1"],best_results["thresh"])
         sys.stdout.flush() 
 
-    ## output best
-    print "In sum, anaphoricity accuracy: %f and Fscore: %f with thresh: %f"\
-        %(best_results["accuracy"],best_results["f1"],best_results["thresh"])
-    sys.stdout.flush()
+        if (echo+1)%10 == 0:
+            best_network_model = torch.load(model_save_dir+"network_model_pretrain.best.top.ana") 
+            print "DEV:"
+            performance.performance(dev_docs,best_network_model)
+            print "TEST:"
+            performance.performance(test_docs,best_network_model)
 
 def get_metrics(gold, predict, thresh):
     pred = np.clip(np.floor(predict / thresh), 0, 1)

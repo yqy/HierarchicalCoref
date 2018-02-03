@@ -98,6 +98,7 @@ class DataGnerater():
             #    self.mention_feature_arrays.append(get_mention_features(mf,me-ms,document_feature))
 
             max_pairs = 10000
+            #max_pairs = 5000
             min_anaphor = 1
             min_pair = 0
             while min_anaphor < doc_mention_sizes:

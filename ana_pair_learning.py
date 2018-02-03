@@ -69,15 +69,18 @@ def main():
         'recall': 0.0,
         'f1': 0.0
         }
-    
+
     optimizer = optim.RMSprop(network_model.parameters(), lr=lr, eps = 1e-5)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.5)
   
     for echo in range(100):
+    #for echo in range(60):
 
         start_time = timeit.default_timer()
         print "Pretrain Epoch:",echo
+        
         scheduler.step()
+
 
         pair_cost_this_turn = 0.0
         ana_cost_this_turn = 0.0
@@ -120,15 +123,17 @@ def main():
 
             #loss = get_pair_loss(output,positive,negative,train_docs.scale_factor)
             loss = F.binary_cross_entropy(output,lable,size_average=False)/train_docs.scale_factor
-            #ana_loss = F.binary_cross_entropy(ana_output,ana_lable,size_average=False)/train_docs.anaphoricity_scale_factor
+            ana_loss = F.binary_cross_entropy(ana_output,ana_lable,size_average=False)/train_docs.anaphoricity_scale_factor
 
             pair_cost_this_turn += loss.data[0]*train_docs.scale_factor
+            ana_cost_this_turn += ana_loss.data[0]*train_docs.anaphoricity_scale_factor
 
-            loss_all = loss
+            loss_all = loss + ana_loss
             loss_all.backward()
             optimizer.step()
 
         end_time = timeit.default_timer()
+        print >> sys.stderr, "PreTrain epoch",echo,"Pair total cost:",pair_cost_this_turn/float(pair_nums),"Anaphoricity total cost", ana_cost_this_turn/float(ana_nums)
         print >> sys.stderr, "PreTRAINING Use %.3f seconds"%(end_time-start_time)
         print >> sys.stderr, "Learning Rate",lr
 
@@ -191,9 +196,31 @@ def main():
         if best_results["f1"] >= all_best_results["f1"]:
             all_best_results = best_results
             print >> sys.stderr, "New High Result, Save Model"
-            torch.save(network_model, model_save_dir+"network_model_pretrain.best.pair")
+            torch.save(network_model, model_save_dir+"network_model_pretrain.best.ana")
 
+        ana_gold = numpy.array(ana_gold,dtype=numpy.int32)
+        ana_predict = numpy.array(ana_predict)
+        best_results = {
+            'thresh': 0.0,
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0
+        }
+        for thresh in thresh_list:
+            evaluation_results = get_metrics(ana_gold, ana_predict, thresh)
+            if evaluation_results["f1"] >= best_results["f1"]:
+                best_results = evaluation_results
+        print "Anaphoricity accuracy: %f and Fscore: %f with thresh: %f"\
+                %(best_results["accuracy"],best_results["f1"],best_results["thresh"])
         sys.stdout.flush() 
+
+        if (echo+1)%10 == 0:
+            best_network_model = torch.load(model_save_dir+"network_model_pretrain.best.ana") 
+            print "DEV:"
+            performance.performance(dev_docs,best_network_model)
+            print "TEST:"
+            performance.performance(test_docs,best_network_model)
 
     ## output best
     print "In sum, anaphoricity accuracy: %f and Fscore: %f with thresh: %f"\
